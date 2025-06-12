@@ -1,7 +1,8 @@
 import socket
 import google.generativeai as genai
 
-genai.configure(api_key="AIzaSyBmf_0dxaf-Y3w-UK6vcZ55L_G1fKZwjFU")
+API_KEY = os.getenv("GEMINI_API_KEY")
+genai.configure(API_KEY)
 
 model = genai.GenerativeModel("models/gemini-1.5-flash")
 
