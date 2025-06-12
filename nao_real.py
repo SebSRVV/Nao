@@ -2,6 +2,7 @@
 from naoqi import ALProxy
 import socket
 import time
+import os
 
 def load_env(filename=".env"):
     env = {}
@@ -14,7 +15,7 @@ def load_env(filename=".env"):
                 key, value = line.split("=", 1)
                 env[key.strip()] = value.strip()
     except IOError:
-        print("No se pudo cargar el archivo .env")
+        print("[- ] No se pudo cargar el archivo .env")
     return env
 
 env = load_env()
@@ -22,59 +23,68 @@ IP = env.get("NAO_IP", "127.0.0.1")
 PORT = int(env.get("NAO_PORT", "9559"))
 GEMINI_PORT = int(env.get("GEMINI_PORT", "6000"))
 
-# Proxys necesarios
+# Conectar a proxys
 tts = ALProxy("ALTextToSpeech", IP, PORT)
 motion = ALProxy("ALMotion", IP, PORT)
 speech_recog = ALProxy("ALSpeechRecognition", IP, PORT)
 memory = ALProxy("ALMemory", IP, PORT)
+posture = ALProxy("ALRobotPosture", IP, PORT)
 
 motion.wakeUp()
+posture.goToPosture("StandInit", 0.5)
 
-language = "Spanish"  # Cambiar a "English"
-speech_recog.setLanguage(language)
+idioma = "Spanish"  # Cambiar a "English" si corresponde
+speech_recog.setLanguage(idioma)
 
-# Palabras que puede reconocer
-vocabulario = ["hola", "cómo estás", "quién eres", "adiós", "ayuda"]
+# Lista de palabras
+vocabulario = ["hola", "como estas", "quien eres", "adios", "ayuda"]
 speech_recog.setVocabulary(vocabulario, False)
 
-# Suscribirse al reconocimiento
-speech_recog.subscribe("mi_app")
-print("🎤 NAO está escuchando... di algo del vocabulario.")
+speech_recog.subscribe("nao_app")
+print("[ + ] NAO esta escuchando...")
 
-# Esperar a que escuche algo
 palabra_escuchada = None
-timeout = time.time() + 10  # Espera 10 segundos máx
+timeout = time.time() + 10
 
 while palabra_escuchada is None and time.time() < timeout:
     data = memory.getData("WordRecognized")
-    if data and isinstance(data, list) and len(data) > 1 and data[1] > 0.4:
+    if isinstance(data, list) and len(data) > 1 and data[1] > 0.4:
         palabra_escuchada = data[0]
     time.sleep(0.1)
 
-speech_recog.unsubscribe("mi_app")
+speech_recog.unsubscribe("nao_app")
 
 if palabra_escuchada is None:
-    print("⏱️ No se escuchó nada.")
-    tts.say("No escuché nada.")
+    print("[- ] No se escucho nada.")
+    tts.say("No escuche nada.")
+    motion.rest()
     exit(0)
 
-print("🗣️ NAO escuchó:", palabra_escuchada)
+print("[ / ] Palabra escuchada:", palabra_escuchada)
 
-# Enviar lo escuchado al modelo
-client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-client.connect(("localhost", GEMINI_PORT))
-client.send(palabra_escuchada.encode())
-response = client.recv(2048).decode('utf-8')
-client.close()
+# Enviar al servidor Gemini
+try:
+    client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    client.connect(("localhost", GEMINI_PORT))
+    client.send(palabra_escuchada.encode("utf-8"))
 
-print("💬 Respuesta del modelo:", response)
+    response = client.recv(2048).decode("utf-8")
+    client.close()
+except Exception as e:
+    print("[- ] Error al conectar con el servidor Gemini:", e)
+    tts.say("No pude conectar con el servidor.")
+    motion.rest()
+    exit(1)
+
+print("[ + ] Respuesta de Gemini:", response)
 
 # Gesto mientras habla
+motion.setStiffnesses("RArm", 1.0)
 motion.setAngles(["RShoulderPitch", "RElbowYaw", "RElbowRoll", "RWristYaw"],
                  [0.5, 1.0, 0.5, 0.0], 0.2)
 motion.openHand("RHand")
 
-for i in range(3):
+for i in range(2):
     motion.setAngles("RWristYaw", 0.5, 0.2)
     time.sleep(0.3)
     motion.setAngles("RWristYaw", -0.5, 0.2)
@@ -83,4 +93,6 @@ for i in range(3):
 motion.closeHand("RHand")
 
 # Decir respuesta
-tts.say(response.encode('utf-8'))
+tts.say(response.encode("utf-8"))
+
+motion.rest()
