@@ -1,5 +1,6 @@
 import socket
 import google.generativeai as genai
+import os
 
 API_KEY = os.getenv("GEMINI_API_KEY")
 genai.configure(API_KEY)
